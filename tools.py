@@ -382,8 +382,10 @@ def _load_FANTAISIA(input_path):
     ecg_ids = []
     for file_name in sorted(os.listdir(data_path)):
         if not file_name.endswith('.dat'): continue
+        if 'f2o02' in file_name: continue
         sig, info = wfdb.rdsamp(os.path.join(data_path, file_name[:-4]))
         sig = sig[:, 1]
+        sig = sig[~np.isnan(sig)]
         if info['fs'] != 250:
             sig = resample(
                 sig, 
@@ -439,6 +441,8 @@ def remove_baseline(data_bundle, sos=None):
 def resample_ecg(data_bundle, fs_after=250):
     ecg_signals = data_bundle['ecg_signals']
     fs_before = data_bundle['fs']
+    if fs_after == fs_before:
+        return data_bundle
     if isinstance(ecg_signals, np.ndarray):
         ecg_resampled = resample(
             ecg_signals, 
