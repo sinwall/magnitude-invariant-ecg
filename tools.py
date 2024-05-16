@@ -124,17 +124,35 @@ def _calculate_maximum_dipersion(pts_ary):
         result[i] = w
     return result
 
-
+import cvxpy as cp
 def calculate_maximum_dispersion(pts_lst, scale=1.):
+    result = []
+    for pts in pts_lst:
+        dist_mat = np.linalg.norm(pts[..., np.newaxis, :] - pts, axis=-1)
+        zeta_mat = np.exp(-dist_mat / scale)
+        ones_vec = np.ones(zeta_mat.shape[:1])
+
+        w = cp.Variable(zeta_mat.shape[0])
+        prob = cp.Problem(
+            cp.Minimize(w@zeta_mat@w),
+            [w@ones_vec == 1, (-w) <= 0]
+        )
+        prob.solve()
+        result.append(w.value)
     if isinstance(pts_lst, np.ndarray):
-        shape = pts_lst.shape
-        pts_lst = pts_lst.reshape((-1, ) + shape[-2:])
-        result = _calculate_maximum_dipersion(pts_lst/scale).reshape(shape[:-1])
-    elif isinstance(pts_lst, list):
-        result = [_calculate_maximum_dipersion(pts[np.newaxis]/scale) for pts in pts_lst]
-    else:
-        raise ValueError
+        result = np.array(result)
     return result
+
+# def calculate_maximum_dispersion(pts_lst, scale=1.):
+#     if isinstance(pts_lst, np.ndarray):
+#         shape = pts_lst.shape
+#         pts_lst = pts_lst.reshape((-1, ) + shape[-2:])
+#         result = _calculate_maximum_dipersion(pts_lst/scale).reshape(shape[:-1])
+#     elif isinstance(pts_lst, list):
+#         result = [_calculate_maximum_dipersion(pts[np.newaxis]/scale) for pts in pts_lst]
+#     else:
+#         raise ValueError
+#     return result
 
 
 class SineFilter():
@@ -234,7 +252,6 @@ symb_to_AAMI = {
     'F': 'F',
     '/': 'Q', 'f': 'Q', 'Q': 'Q'
 }
-dataset_path = f'E:/database/'
 
 
 def as_partial(func):
@@ -246,10 +263,10 @@ def as_partial(func):
 
 
 @as_partial
-def load_data(data_bundle=None, dataset_name='MIT-BIH', dataset_path=dataset_path):
+def load_data(data_bundle, dataset_name, dataset_path):
     if data_bundle is None:
         data_bundle = dict()
-    if dataset_name == 'MIT-BIH':
+    if dataset_name == 'MITDB':
         ecg_signals, ecg_ids = _load_MIT_BIH(input_path=dataset_path)
         fs = 360
     elif dataset_name == 'ECG-ID':
@@ -261,6 +278,14 @@ def load_data(data_bundle=None, dataset_name='MIT-BIH', dataset_path=dataset_pat
     elif dataset_name == 'NSRDB':
         ecg_signals, ecg_ids = _load_NSRDB(input_path=dataset_path)
         fs = 128
+    elif dataset_name == 'AFDB':
+        ecg_signals, ecg_ids = _load_AFDB(input_path=dataset_path)
+        fs = 250
+    elif dataset_name == 'FANTASIA':
+        ecg_signals, ecg_ids = _load_FANTAISIA(input_path=dataset_path)
+        fs = 250
+    else:
+        raise ValueError('Dataset name not understood.')
 
     data_bundle['ecg_raw'] = ecg_signals
     data_bundle['ecg_signals'] = ecg_signals
@@ -268,8 +293,8 @@ def load_data(data_bundle=None, dataset_name='MIT-BIH', dataset_path=dataset_pat
     data_bundle['fs'] = fs
     return data_bundle
 
-def _load_MIT_BIH(input_path=dataset_path):
-    input_path += 'mit-bih-arrhythmia-database-1.0.0'
+def _load_MIT_BIH(input_path):
+    input_path = os.path.join(input_path, 'mit-bih-arrhythmia-database-1.0.0')
     ecg_signals = []
     ecg_ids = []
     ann_symbols = []
@@ -288,8 +313,8 @@ def _load_MIT_BIH(input_path=dataset_path):
     ecg_signals = np.stack(ecg_signals); ecg_ids = np.array(ecg_ids)
     return ecg_signals, ecg_ids
 
-def _load_ECG_ID(input_path=dataset_path):
-    input_path += 'ecg-id-database-1.0.0'
+def _load_ECG_ID(input_path):
+    input_path = os.path.join(input_path, 'ecg-id-database-1.0.0')
     ecg_signals = []
     ecg_ids = []
     for person_num in range(1, 90+1):
@@ -308,8 +333,8 @@ def _load_ECG_ID(input_path=dataset_path):
     ecg_signals = np.stack(ecg_signals); ecg_ids = np.array(ecg_ids)
     return ecg_signals, ecg_ids
 
-def _load_PTB(input_path=dataset_path):
-    input_path += 'ptb-diagnostic-ecg-database-1.0.0'
+def _load_PTB(input_path):
+    input_path = os.path.join(input_path, 'ptb-diagnostic-ecg-database-1.0.0')
     ecg_signals = []
     ecg_ids = []
     for patient_num in range(1, 294+1):
@@ -328,8 +353,8 @@ def _load_PTB(input_path=dataset_path):
     ecg_signals = np.stack(ecg_signals); ecg_ids = np.array(ecg_ids)
     return ecg_signals, ecg_ids
 
-def _load_NSRDB(input_path=dataset_path):
-    input_path += 'mit-bih-normal-sinus-rhythm-database-1.0.0'
+def _load_NSRDB(input_path):
+    input_path = os.path.join(input_path, 'mit-bih-normal-sinus-rhythm-database-1.0.0')
     ecg_signals = []
     ecg_ids = []
     header_names = sorted(
@@ -348,6 +373,42 @@ def _load_NSRDB(input_path=dataset_path):
         sig = sig[idx_first_N:idx_last_N]
         ecg_signals.append( sig[:, 0])
         ecg_ids.append(int(header_name[:-4]))
+    return ecg_signals, ecg_ids
+
+
+def _load_FANTAISIA(input_path):
+    data_path = os.path.join(input_path, 'fantasia-database-1.0.0')
+    ecg_signals = []
+    ecg_ids = []
+    for file_name in sorted(os.listdir(data_path)):
+        if not file_name.endswith('.dat'): continue
+        sig, info = wfdb.rdsamp(os.path.join(data_path, file_name[:-4]))
+        sig = sig[:, 1]
+        if info['fs'] != 250:
+            sig = resample(
+                sig, 
+                num=int(len(sig)*(250/info['fs'])),
+                axis=0
+            )
+        ecg_signals.append( sig )
+        ecg_ids.append(file_name[:-4])
+    return ecg_signals, ecg_ids
+
+
+def _load_AFDB(input_path):
+    data_path = os.path.join(input_path, 'files')
+    ecg_signals = []
+    ecg_ids = []
+    for file_name in sorted(os.listdir(data_path)):
+        if not file_name.endswith('dat'): continue
+        file_name_full = os.path.join(data_path, 'files', file_name[:-4])
+        sig, info = wfdb.rdsamp(file_name_full)
+        atr = wfdb.rdann(file_name_full, 'qrs')
+        assert info['fs'] == 250
+        sig = sig[:atr.sample[-1], 0]
+        ecg_signals.append(sig)
+        ecg_ids.append(int(file_name[:-4]))
+    ecg_ids = np.array(ecg_ids)
     return ecg_signals, ecg_ids
 
 
@@ -422,7 +483,7 @@ def divide_segments(data_bundle, seg_dur=2, fs=250, ol_rate=0, minmax_scale=Fals
     if minmax_scale:
         segs_min = np.min(segs, axis=1, keepdims=True)
         segs_max = np.max(segs, axis=1, keepdims=True)
-        segs = (segs - segs_min) / (segs_max - segs_min) * 1.5
+        segs = -1 + 2*(segs - segs_min) / (segs_max - segs_min)
     data_bundle['segs'] = segs
     data_bundle['seg_ids'] = seg_ids
     return data_bundle
