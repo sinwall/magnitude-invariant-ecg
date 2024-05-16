@@ -373,6 +373,7 @@ def _load_NSRDB(input_path):
         sig = sig[idx_first_N:idx_last_N]
         ecg_signals.append( sig[:, 0])
         ecg_ids.append(int(header_name[:-4]))
+    ecg_ids = np.array(ecg_ids)
     return ecg_signals, ecg_ids
 
 
@@ -385,7 +386,7 @@ def _load_FANTAISIA(input_path):
         if 'f2o02' in file_name: continue
         sig, info = wfdb.rdsamp(os.path.join(data_path, file_name[:-4]))
         sig = sig[:, 1]
-        sig = sig[~np.isnan(sig)]
+        # sig = sig[~np.isnan(sig)]
         if info['fs'] != 250:
             sig = resample(
                 sig, 
@@ -394,6 +395,7 @@ def _load_FANTAISIA(input_path):
             )
         ecg_signals.append( sig )
         ecg_ids.append(file_name[:-4])
+    ecg_ids = np.array(ecg_ids)
     return ecg_signals, ecg_ids
 
 
@@ -403,7 +405,7 @@ def _load_AFDB(input_path):
     ecg_ids = []
     for file_name in sorted(os.listdir(data_path)):
         if not file_name.endswith('dat'): continue
-        file_name_full = os.path.join(data_path, 'files', file_name[:-4])
+        file_name_full = os.path.join(data_path, file_name[:-4])
         sig, info = wfdb.rdsamp(file_name_full)
         atr = wfdb.rdann(file_name_full, 'qrs')
         assert info['fs'] == 250
@@ -484,6 +486,9 @@ def divide_segments(data_bundle, seg_dur=2, fs=250, ol_rate=0, minmax_scale=Fals
                 segs.append( seg )
                 seg_ids.append( ecg_id )
         segs = np.array(segs); seg_ids = np.array(seg_ids)
+    mask_na = np.any(np.isnan(segs), axis=1)
+    segs = segs[~mask_na]
+    seg_ids = seg_ids[~mask_na]
     if minmax_scale:
         segs_min = np.min(segs, axis=1, keepdims=True)
         segs_max = np.max(segs, axis=1, keepdims=True)
