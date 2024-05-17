@@ -225,7 +225,7 @@ def select_model_params():
 
 
 
-def get_performances(lag=5, scale_w=2e0, scale_d=1e0):
+def get_performances(lag=5, scale_w=2e0, scale_d=1e0, use_weighting=False):
     data_bundle = dict()
     # prepare and preprocess data
     # and save into `data_bundle`
@@ -233,12 +233,14 @@ def get_performances(lag=5, scale_w=2e0, scale_d=1e0):
         load_data('MITDB', 'E:/database'),
         remove_baseline(),
         resample_ecg(fs_after=250),
-        divide_segments(seg_dur=2, fs=250, minmax_scale=True),
+        divide_segments(seg_dur=2, fs=250, minmax_scale=False),
         make_curves(dim=3, lag=lag, reduce=0),  # time-delay embedding
         compress_curves(size=250),  # reduce
-        calculate_weights(scale=1e0),
+        # calculate_weights(scale=1e0),
         # calculate_max_dispers(scale=1e0),
     )(data_bundle)
+    if use_weighting:
+        data_bundle = calculate_weights(scale=1e0)(data_bundle)
 
     # train/test/validation split
     y = data_bundle['seg_ids']
@@ -252,55 +254,53 @@ def get_performances(lag=5, scale_w=2e0, scale_d=1e0):
 
     y_train, y_test = y[mask_train], y[mask_test]
     scores = defaultdict(list)
-    for model_name in ['knn']:
-    # for model_name in ['knn', 'hgbt', 'lr']:
+    # for model_name in ['knn']:
+    for model_name in ['knn', 'hgbt', 'lr']:
         print(model_name)
         for random_state in range(42, 42+10):
-            # data_bundle = compose(
-            #     extract_fourier(scale=scale_w, n_filters=512, random_state=random_state),
-            #     extract_fourier(scale=scale_w, n_filters=512, weight_type='m', random_state=random_state),
-            #     extract_distance(scale=scale_d, n_filters=512, random_state=random_state),
-            # )(data_bundle)
-            # X_dist = data_bundle['X_dist']
-            # X_fourier_w = data_bundle['X_fourier_w']
-            # X_fourier_m = data_bundle['X_fourier_m']
+            if not use_weighting:
+                data_bundle = compose(
+                    extract_distance(scale=scale_d, n_filters=512, random_state=random_state)
+                )(data_bundle)
+                X_dist = data_bundle['X_dist']
+                X = X_dist
+            elif use_weighting == 'w':
+                data_bundle = compose(
+                    extract_fourier(scale=scale_w, n_filters=512, random_state=random_state),
+                    extract_distance(scale=scale_d, n_filters=512, random_state=random_state),
+                )(data_bundle)
+                X_dist = data_bundle['X_dist']
+                X_fourier_w = data_bundle['X_fourier_w']
+                X = np.concatenate([X_dist[...,::-2], X_fourier_w[..., ::-2]], axis=1)
+            elif use_weighting == 'm':
+                data_bundle = compose(
+                    extract_fourier(scale=scale_w, n_filters=512, weight_type='m', random_state=random_state),
+                    extract_distance(scale=scale_d, n_filters=512, random_state=random_state),
+                )(data_bundle)
+                X_dist = data_bundle['X_dist']
+                X_fourier_m = data_bundle['X_fourier_m']
+                X = np.concatenate([X_dist[...,::-2], X_fourier_m[..., ::-2]], axis=1)
+            X_train, X_test = X[mask_train], X[mask_test]
 
-            for use_weighting in [False, 'w']:
-            # for use_weighting in [False, 'w', 'm']:
-                if not use_weighting:
-                    data_bundle = compose(
-                        extract_distance(scale=2e0, n_filters=512, random_state=random_state)
-                    )(data_bundle)
-                    X_dist = data_bundle['X_dist']
-                    X = X_dist
-                elif use_weighting == 'w':
-                    data_bundle = compose(
-                        extract_fourier(scale=1e0, n_filters=512, random_state=random_state),
-                        extract_distance(scale=1e0, n_filters=512, random_state=random_state),
-                    )(data_bundle)
-                    X_dist = data_bundle['X_dist']
-                    X_fourier_w = data_bundle['X_fourier_w']
-                    X = np.concatenate([X_dist[...,::-2], X_fourier_w[..., ::-2]], axis=1)
-                elif use_weighting == 'm':
-                    data_bundle = compose(
-                        extract_fourier(scale=1e0, n_filters=512, weight_type='m', random_state=random_state),
-                        extract_distance(scale=1e0, n_filters=512, random_state=random_state),
-                    )(data_bundle)
-                    X_dist = data_bundle['X_dist']
-                    X_fourier_m = data_bundle['X_fourier_m']
-                    X = np.concatenate([X_dist[...,::-2], X_fourier_m[..., ::-2]], axis=1)
-                X_train, X_test = X[mask_train], X[mask_test]
-
-                model = get_model(model_name, random_state=random_state)
-                model.fit(X_train, y_train)
-                score = accuracy_score(y_test, model.predict(X_test))
-                scores[(model_name, use_weighting)].append( score )
-                print(score, end=' ')
-            print()
-        print(f'result stats (wout w ): mean {np.mean(scores[(model_name, False)])}, std:{np.std(scores[(model_name, False)])}')
-        print(f'result stats (with w ): mean {np.mean(scores[(model_name, "w")])}, std:{np.std(scores[(model_name, "w")])}')
-        # print(f'result stats (with w+): mean {np.mean(scores[(model_name, "m")])}, std:{np.std(scores[(model_name, "m")])}')
+            model = get_model(model_name, random_state=random_state)
+            model.fit(X_train, y_train)
+            score = accuracy_score(y_test, model.predict(X_test))
+            scores[model_name].append( score )
+            print(score)
+        # print(f'result stats (wout w ): mean {np.mean(scores[(model_name, False)])}, std:{np.std(scores[(model_name, False)])}')
+        if not use_weighting:
+            print(f'result stats (wout w ): ', end='')
+        elif use_weighting == 'w':
+            print(f'result stats (with w ): ', end='')
+        elif use_weighting == 'm':
+            print(f'result stats (with w+): ', end='')
+        print(f'mean {np.mean(scores[model_name])}, std:{np.std(scores[model_name])}')
         print()
+
+# NSRDB
+# optimal with ((10, 0.25, 1.0, False), 0.9585826965203623)
+# optimal with ((5, 2.0, 0.5, True), 0.9592095084550929)
+
 
 if __name__ == '__main__':
     select_geometric_params()
