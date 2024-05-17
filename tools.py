@@ -632,6 +632,14 @@ def split_into_train_test(data_bundle, test_ratio=0.2, ol_rate=0):
     return data_bundle
 
 
+@as_partial
+def load_cache(data_bundle, file_name):
+    npz_loaded = np.load(file_name)
+    for key in npz_loaded:
+        data_bundle[key] = npz_loaded[key]
+    return data_bundle
+
+
 # def _make_geometric(segs, dim=3, lag=4, reduce=0, scale=1.):
 #     embedder = Embedder(dim=dim, lag=lag, reduce=reduce)
 #     length_loss = embedder.length_loss
