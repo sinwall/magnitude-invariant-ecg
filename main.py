@@ -1,6 +1,7 @@
 import itertools
 from collections import defaultdict
 from datetime import datetime
+import logging
 # import os
 # import sys
 # sys.path.append(os.path.abspath('../'))
@@ -17,6 +18,20 @@ from tools import (
     make_curves, compress_curves, calculate_weights, calculate_max_dispers,
     extract_fourier, extract_distance,
     split_into_train_test,
+)
+
+
+logger = logging.getLogger(__name__)
+handler = logging.StreamHandler()
+handler.setFormatter('%(asctime)s - %(levelname)s - %(message)s')
+handler.setLevel(logging.DEBUG)
+logging.basicConfig(
+    '.log.txt', 
+    format=handler.formatter,
+    level=handler.level,
+    # format='%(asctime)s - %(levelname)s - %(message)s',
+    # level=logging.DEBUG,
+    handlers=[handler]
 )
 
 def compose(*args):
@@ -81,7 +96,7 @@ def select_geometric_params():
         ['MITDB', 'NSRDB', 'AFDB', 'FANTASIA'],
         ['E:/database', 'E:/database', 'E:/database/mit-bih-atrial-fibrillation-database-1.0.0', 'E:/database']
     ):
-        print(datetime.now().isoformat(), f'dataset={ds_name}')
+        logger.debug(datetime.now().isoformat(), f'dataset={ds_name}')
         data_bundle = dict()
         data_bundle = compose(
             load_data(ds_name, ds_path),
@@ -104,14 +119,14 @@ def select_geometric_params():
         model = get_model('knn', n_neighbors=5)
         scores = defaultdict(list)
         for lag in lags:
-            print(datetime.now().isoformat(), f'lag={lag}')
+            logger.debug(datetime.now().isoformat(), f'lag={lag}')
             data_bundle = compose(
                 make_curves(dim=3, lag=lag, reduce=0),  # time-delay embedding
                 compress_curves(size=400),  # reduce
                 calculate_weights(scale=1e0),
             )(data_bundle)
             for scale_w, scale_d in itertools.product(scale_ws, scale_ds):
-                print(datetime.now().isoformat(), f'scale_w={scale_w}, scale_d={scale_d}')
+                logger.debug(datetime.now().isoformat(), f'scale_w={scale_w}, scale_d={scale_d}')
                 for random_state in range(42, 42+5):
                     data_bundle = compose(
                         extract_fourier(scale=scale_w, n_filters=128, random_state=random_state),
@@ -129,18 +144,18 @@ def select_geometric_params():
                         model.fit(X_train, y_train)
                         score = accuracy_score(y_test, model.predict(X_test))
                         scores[(lag, scale_w, scale_d, use_weighting)].append( score )
-                        print(score, end=' ')
-                    print()
-                print()
-            print()
+                        logger.debug(score, end=' ')
+                    logger.debug('')
+                logger.debug('')
+            logger.debug('')
         for key in scores:
             scores[key] = np.mean(scores[key])
         for use_weighting in (False, True):
-            print(f'If use_weighting={use_weighting}, validation result is:')
+            logger.debug(f'If use_weighting={use_weighting}, validation result is:')
             results = [(key, val) for key, val in scores.items() if key[-1] == use_weighting]
-            print(*results, sep='\n')
-            print(f'optimal with {results[np.argmax([el[1] for el in results])]}')
-            print()
+            logger.debug('\n'.join(results))
+            logger.debug(f'optimal with {results[np.argmax([el[1] for el in results])]}')
+            logger.debug('')
 
 
 def select_model_params():
@@ -184,6 +199,7 @@ def select_model_params():
     y_train, y_test = y[mask_train&~mask_val], y[mask_val]
 
     for model_name in ['knn', 'hgbt', 'lr']:
+        logger.debug(model_name)
         scores = defaultdict(list)
         param_grid = model_param_grids[model_name]
         param_names = param_grid.keys()
@@ -211,17 +227,17 @@ def select_model_params():
                     model.fit(X_train, y_train)
                     score = accuracy_score(y_test, model.predict(X_test))
                     scores[(tuple(params.items()), use_weighting)].append( score )
-                    print(score, end=' ')
-                print()
-            print()
-        print()
+                    logger.debug(score + ' ')
+                logger.debug('')
+            logger.debug('')
+        logger.debug('')
         for key in scores:
             scores[key] = np.mean(scores[key])
         for use_weighting in (False, True):
-            print(f'If use_weighting={use_weighting}, validation result is:')
+            logger.debug(f'If use_weighting={use_weighting}, validation result is:')
             results = [val for key, val in scores.items() if key[-1] == use_weighting]
-            print(*results)
-            print()
+            logger.debug('\n'.join(results))
+            logger.debug('')
 
 
 
@@ -256,7 +272,7 @@ def get_performances(lag=5, scale_w=2e0, scale_d=1e0, use_weighting=False):
     scores = defaultdict(list)
     # for model_name in ['knn']:
     for model_name in ['knn', 'hgbt', 'lr']:
-        print(model_name)
+        logger.debug(model_name)
         for random_state in range(42, 42+10):
             if not use_weighting:
                 data_bundle = compose(
@@ -286,16 +302,16 @@ def get_performances(lag=5, scale_w=2e0, scale_d=1e0, use_weighting=False):
             model.fit(X_train, y_train)
             score = accuracy_score(y_test, model.predict(X_test))
             scores[model_name].append( score )
-            print(score)
+            logger.debug(score)
         # print(f'result stats (wout w ): mean {np.mean(scores[(model_name, False)])}, std:{np.std(scores[(model_name, False)])}')
         if not use_weighting:
-            print(f'result stats (wout w ): ', end='')
+            logger.debug(f'result stats (wout w ): ')
         elif use_weighting == 'w':
-            print(f'result stats (with w ): ', end='')
+            logger.debug(f'result stats (with w ): ')
         elif use_weighting == 'm':
-            print(f'result stats (with w+): ', end='')
-        print(f'mean {np.mean(scores[model_name])}, std:{np.std(scores[model_name])}')
-        print()
+            logger.debug(f'result stats (with w+): ')
+        logger.debug(f'mean {np.mean(scores[model_name])}, std:{np.std(scores[model_name])}')
+        logger.debug('')
 
 # NSRDB
 # optimal with ((10, 0.25, 1.0, False), 0.9585826965203623)
