@@ -602,9 +602,9 @@ def extract_fourier(data_bundle, scale=1e0, n_filters=256, weight_type='w', rand
 @as_partial
 def extract_distance(data_bundle, scale=1e0, n_filters=256, random_state=42):
     curves = data_bundle['curves']
-    weights = data_bundle['weights']
+    # weights = data_bundle['weights']
     dist_filter = DistFilter(dim=curves.shape[-1], scale=scale, n_filters=n_filters, random_state=random_state)
-    X = dist_filter.apply(curves, weights, batch_size=256)
+    X = dist_filter.apply(curves, None, batch_size=256)
     data_bundle[f'X_dist'] = X
     return data_bundle
 
