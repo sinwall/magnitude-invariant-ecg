@@ -163,16 +163,16 @@ def select_geometric_params():
             write_log('')
 
 
-def select_model_params():
+def select_model_params(dbname, dbpath, dim=3, lag=5, scale_w=2e0, scale_d=1e0, use_weighting=False):
     data_bundle = dict()
     # prepare and preprocess data
     # and save into `data_bundle`
     data_bundle = compose(
-        load_data('MITDB'),
+        load_data(dbname, dbpath),
         remove_baseline(),
         resample_ecg(fs_after=250),
         divide_segments(seg_dur=2, fs=250),
-        make_curves(dim=3, lag=5, reduce=0),  # time-delay embedding
+        make_curves(dim=dim, lag=lag, reduce=0),  # time-delay embedding
         compress_curves(size=400),  # reduce
         calculate_weights(scale=1e0),
     )(data_bundle)
@@ -184,8 +184,8 @@ def select_model_params():
             weights=['uniform', 'distance'],  # 2 - distance 
         ),
         'hgbt': dict(
-            max_iter=[50, 100, 200], # 500, 1000?
-            max_depth=[8, 10, 12], # 15, 20?
+            max_iter=[100, 200, 300], # 500, 1000?
+            max_depth=[10, 12, 15], # 15, 20?
         ),
         'lr': dict(
             C=[1e-1, 3e-1, 1e0, 3e0, 1e1], # 3e-1 if not use, 3e0 if use
@@ -199,11 +199,12 @@ def select_model_params():
         for s in np.unique(y)
     ], axis=0)
     mask_train = (idwise_cnt_normalized < 0.8) # & (idwise_cnt_normalized > 0.7)
-    mask_val = (idwise_cnt_normalized < 0.8) & (idwise_cnt_normalized > 0.7)
+    mask_val = (idwise_cnt_normalized < 0.8) & (idwise_cnt_normalized > 0.6)
 
     y_train, y_test = y[mask_train&~mask_val], y[mask_val]
 
-    for model_name in ['knn', 'hgbt', 'lr']:
+    for model_name in ['lr']:
+    # for model_name in ['knn', 'hgbt', 'lr']:
         write_log(model_name)
         scores = defaultdict(list)
         param_grid = model_param_grids[model_name]
@@ -215,14 +216,14 @@ def select_model_params():
                 for use_weighting in [False, True]:
                     if not use_weighting:
                         data_bundle = compose(
-                            extract_distance(scale=2e0, n_filters=512, random_state=random_state),
+                            extract_distance(scale=scale_d, n_filters=512, random_state=random_state),
                         )(data_bundle)
                         X_dist = data_bundle['X_dist']
                         X = X_dist
                     else:
                         data_bundle = compose(
-                            extract_fourier(scale=2e0, n_filters=512, random_state=random_state),
-                            extract_distance(scale=1e0, n_filters=512, random_state=random_state),
+                            extract_fourier(scale=scale_w, n_filters=512, random_state=random_state),
+                            extract_distance(scale=scale_d, n_filters=512, random_state=random_state),
                         )(data_bundle)
                         X_dist = data_bundle['X_dist']
                         X_fourier = data_bundle['X_fourier_w']
