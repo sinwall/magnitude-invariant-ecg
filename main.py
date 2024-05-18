@@ -233,7 +233,7 @@ def select_model_params(dbname, dbpath, dim=3, lag=5, scale_w=2e0, scale_d=1e0, 
                     model.fit(X_train, y_train)
                     score = accuracy_score(y_test, model.predict(X_test))
                     scores[(tuple(params.items()), use_weighting)].append( score )
-                    write_log(score + ' ')
+                    write_log(score)
                 write_log('')
             write_log('')
         write_log('')
