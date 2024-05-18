@@ -158,7 +158,7 @@ def select_geometric_params():
             scores[key] = np.mean(scores[key])
         for use_weighting in (False, True):
             write_log(f'If use_weighting={use_weighting}, validation result is:')
-            results = [(key, val) for key, val in scores.items() if key[-1] == use_weighting]
+            results = [f'{key} {val}' for key, val in scores.items() if key[-1] == use_weighting]
             write_log('\n'.join(results))
             write_log(f'optimal with {results[np.argmax([el[1] for el in results])]}')
             write_log('')
@@ -241,7 +241,7 @@ def select_model_params():
             scores[key] = np.mean(scores[key])
         for use_weighting in (False, True):
             write_log(f'If use_weighting={use_weighting}, validation result is:')
-            results = [val for key, val in scores.items() if key[-1] == use_weighting]
+            results = [f'{key} {val}' for key, val in scores.items() if key[-1] == use_weighting]
             write_log('\n'.join(results))
             write_log('')
 
