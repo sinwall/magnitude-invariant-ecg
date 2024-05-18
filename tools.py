@@ -640,6 +640,16 @@ def load_cache(data_bundle, file_name):
     return data_bundle
 
 
+@as_partial
+def save_features(data_bundle, file_name):
+    np.savez(
+        file_name, 
+        X_dist=data_bundle['X_dist'],
+        X_fourier_w=data_bundle['X_fourier_w']
+    )
+    return data_bundle
+
+
 # def _make_geometric(segs, dim=3, lag=4, reduce=0, scale=1.):
 #     embedder = Embedder(dim=dim, lag=lag, reduce=reduce)
 #     length_loss = embedder.length_loss

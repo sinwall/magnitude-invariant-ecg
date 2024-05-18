@@ -98,9 +98,8 @@ def select_geometric_params():
     # prepare and preprocess data
     # and save into `data_bundle`
     for ds_name, ds_path in zip(
-        ['MITDB',],
-        # ['MITDB', 'NSRDB', 'AFDB', 'FANTASIA'],
-        ['D:/database', 'D:/database', 'D:/database/mit-bih-atrial-fibrillation-database-1.0.0', 'D:/database']
+        ['MITDB', 'NSRDB', 'AFDB', 'FANTASIA'],
+        ['E:/database', 'E:/database', 'E:/database/mit-bih-atrial-fibrillation-database-1.0.0', 'E:/database']
     ):
         write_log(f'dataset={ds_name}')
         data_bundle = dict()
@@ -247,16 +246,16 @@ def select_model_params():
 
 
 
-def get_performances(lag=5, scale_w=2e0, scale_d=1e0, use_weighting=False):
+def get_performances(dbname, dbpath, dim=3, lag=5, scale_w=2e0, scale_d=1e0, use_weighting=False):
     data_bundle = dict()
     # prepare and preprocess data
     # and save into `data_bundle`
     data_bundle = compose(
-        load_data('MITDB', 'E:/database'),
+        load_data(dbname, dbpath),
         remove_baseline(),
         resample_ecg(fs_after=250),
         divide_segments(seg_dur=2, fs=250, minmax_scale=False),
-        make_curves(dim=3, lag=lag, reduce=0),  # time-delay embedding
+        make_curves(dim=dim, lag=lag, reduce=0),  # time-delay embedding
         compress_curves(size=250),  # reduce
         # calculate_weights(scale=1e0),
         # calculate_max_dispers(scale=1e0),
@@ -290,6 +289,7 @@ def get_performances(lag=5, scale_w=2e0, scale_d=1e0, use_weighting=False):
                 data_bundle = compose(
                     extract_fourier(scale=scale_w, n_filters=512, random_state=random_state),
                     extract_distance(scale=scale_d, n_filters=512, random_state=random_state),
+                    # save_features(f'.cache_features-lag={lag}-scale_w={scale_w}-scale_d={scale_d}')
                 )(data_bundle)
                 X_dist = data_bundle['X_dist']
                 X_fourier_w = data_bundle['X_fourier_w']
@@ -323,8 +323,27 @@ def get_performances(lag=5, scale_w=2e0, scale_d=1e0, use_weighting=False):
 # optimal with ((10, 0.25, 1.0, False), 0.9585826965203623)
 # optimal with ((5, 2.0, 0.5, True), 0.9592095084550929)
 
+# FANTASIA
+# optimal with ((5, 0.25, 4.0, False), 0.9949065238359088)
+# optimal with ((5, 1.0, 1.0, True), 0.9964784830388476)
+
+# MITDB
+# optimal with ((5, 0.25, 2.0, False), 0.956809...)
+# optimal with ((5, 1.0, 1.0, True), 0.961795...)
+
+# AFDB
+# optimal with ((5, 0.25, 2.0, False), 0.9638150232919255)
+# optimal with ((5, 1.0, 0.5, True), 0.9680354716614905)
+
 
 if __name__ == '__main__':
-    select_geometric_params()
+    # select_geometric_params()
     # select_model_params()
-    # get_performances()
+    get_performances('MITDB', 'E:/database', 5, 0.25, 2.0, False)
+    get_performances('MITDB', 'E:/database', 5, 1.0, 1.0, 'w')
+    get_performances('NSRDB', 'E:/database', 10, 0.25, 1.0, False)
+    get_performances('NSRDB', 'E:/database', 5, 2.0, 0.5, 'w')
+    get_performances('AFDB', 'E:/database/mit-bih-atrial-fibrillation-database-1.0.0', 5, 0.25, 2.0, False)
+    get_performances('AFDB', 'E:/database/mit-bih-atrial-fibrillation-database-1.0.0', 5, 1.0, 0.5, 'w')
+    get_performances('FANTASIA', 'E:/database', 5, 0.25, 4.0, False)
+    get_performances('FANTASIA', 'E:/database', 5, 1.0, 1.0, 'w')
