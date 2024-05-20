@@ -645,7 +645,9 @@ def save_features(data_bundle, file_name):
     np.savez(
         file_name, 
         X_dist=data_bundle['X_dist'],
-        X_fourier_w=data_bundle['X_fourier_w']
+        X_fourier_w=data_bundle.get('X_fourier_w', np.array([])),
+        X_fourier_m=data_bundle.get('X_fourier_m', np.array([])),
+        y=data_bundle['seg_ids']
     )
     return data_bundle
 
