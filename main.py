@@ -17,7 +17,7 @@ from tools import (
     load_data, remove_baseline, resample_ecg, divide_segments,
     make_curves, compress_curves, calculate_weights, calculate_max_dispers,
     extract_fourier, extract_distance,
-    split_into_train_test,
+    split_into_train_test, save_features
 )
 
 
@@ -89,6 +89,9 @@ def get_model(name, random_state=None, **kwargs):
 
 
 def select_geometric_params():
+    '''
+    This function is used to choose best `lag` and radii(`scale_w`, `scale_d`). 
+    '''
     # lags = (5, )
     # scale_ws = (1e0, )
     # scale_ds = (1e0, )
@@ -247,37 +250,50 @@ def select_model_params(dbname, dbpath, dim=3, lag=5, scale_w=2e0, scale_d=1e0, 
 
 
 
-def get_performances(dbname, dbpath, dim=3, lag=5, scale_w=2e0, scale_d=1e0, use_weighting=False):
+def get_performances(dbname, dbpath, dim=3, lag=5, scale_w=2e0, scale_d=1e0, use_weighting=False, use_cache=False):
+    '''
+    Main result of experiment is provided by this function.
+    - `dbname`: one of 'FANTASIA' 'NSRDB' 'MITDB' 'AFDB'
+    - `dbpath`: local path to the dataset downloaded from PhysioNet; unzipped folder is expected in the site referred by `dbpath`
+    - `dim`: dimension of time-delay embedding
+    - `lag`: lag of time-delay embedding, where the unit corresponds to one shift in array data
+    - `scale_w`: radius of ball from which $\\xi$'s are sampled. $\\xi$ is used to compute Fourire coefficient
+    - `scale_d': radius of ball from which 'landmarks' are sampled
+    - `use_weighting`: one of False 'w' 'm'. If False, use landmarks only; if 'w', use landmarks and fourier coefficients of weighting;
+      if 'm', use landmarks and fourier coefficients of diversifier
+    - `use_cache`: always False; unsupported in released version
+    '''
     data_bundle = dict()
     # prepare and preprocess data
     # and save into `data_bundle`
-    data_bundle = compose(
-        load_data(dbname, dbpath),
-        remove_baseline(),
-        resample_ecg(fs_after=250),
-        divide_segments(seg_dur=2, fs=250, minmax_scale=False),
-        make_curves(dim=dim, lag=lag, reduce=0),  # time-delay embedding
-        compress_curves(size=250),  # reduce
-        # calculate_weights(scale=1e0),
-        # calculate_max_dispers(scale=1e0),
-    )(data_bundle)
-    if use_weighting:
-        data_bundle = calculate_weights(scale=1e0)(data_bundle)
+    if not use_cache:
+        data_bundle = compose(
+            load_data(dbname, dbpath),
+            remove_baseline(),
+            resample_ecg(fs_after=250),
+            divide_segments(seg_dur=2, fs=250, minmax_scale=False),
+            make_curves(dim=dim, lag=lag, reduce=0),  # time-delay embedding
+            compress_curves(size=250),  # reduce
+            # calculate_weights(scale=1e0),
+            # calculate_max_dispers(scale=1e0),
+        )(data_bundle)
+        if use_weighting:
+            data_bundle = calculate_weights(scale=1e0)(data_bundle)
 
-    # train/test/validation split
-    y = data_bundle['seg_ids']
-    idwise_cnt_normalized = np.sum([
-        (y == s)*np.cumsum((y == s) / np.sum(y == s))
-        for s in np.unique(y)
-    ], axis=0)
-    mask_train = (idwise_cnt_normalized < 0.8) # & (idwise_cnt_normalized > 0.7)
-    mask_test = idwise_cnt_normalized > 0.8
-    # mask_val = (idwise_cnt_normalized < 0.8) & (idwise_cnt_normalized > 0.7)
+        # train/test/validation split
+        y = data_bundle['seg_ids']
+        idwise_cnt_normalized = np.sum([
+            (y == s)*np.cumsum((y == s) / np.sum(y == s))
+            for s in np.unique(y)
+        ], axis=0)
+        mask_train = (idwise_cnt_normalized < 0.8) # & (idwise_cnt_normalized > 0.7)
+        mask_test = idwise_cnt_normalized > 0.8
+        # mask_val = (idwise_cnt_normalized < 0.8) & (idwise_cnt_normalized > 0.7)
 
-    y_train, y_test = y[mask_train], y[mask_test]
+        y_train, y_test = y[mask_train], y[mask_test]
     scores = defaultdict(list)
-    # for model_name in ['knn']:
-    for model_name in ['knn', 'hgbt', 'lr']:
+    for model_name in ['lr']:
+    # for model_name in ['knn', 'hgbt']:
         write_log(model_name)
         for random_state in range(42, 42+10):
             if not use_weighting:
@@ -286,11 +302,27 @@ def get_performances(dbname, dbpath, dim=3, lag=5, scale_w=2e0, scale_d=1e0, use
                 )(data_bundle)
                 X_dist = data_bundle['X_dist']
                 X = X_dist
+            elif use_cache:
+                npz_loaded = np.load(f'.cache_features-dbname={dbname}-lag={lag}-scale_w={scale_w}-scale_d={scale_d}-random_state={random_state}.npz')
+                X_dist = npz_loaded['X_dist']
+                X_fourier_w = npz_loaded['X_fourier_w']
+                # train/test/validation split
+                y = npz_loaded['y']
+                idwise_cnt_normalized = np.sum([
+                    (y == s)*np.cumsum((y == s) / np.sum(y == s))
+                    for s in np.unique(y)
+                ], axis=0)
+                mask_train = (idwise_cnt_normalized < 0.8) # & (idwise_cnt_normalized > 0.7)
+                mask_test = idwise_cnt_normalized > 0.8
+                # mask_val = (idwise_cnt_normalized < 0.8) & (idwise_cnt_normalized > 0.7)
+
+                y_train, y_test = y[mask_train], y[mask_test]
+                X = np.concatenate([X_dist[...,::-2], X_fourier_w[..., ::-2]], axis=1)
             elif use_weighting == 'w':
                 data_bundle = compose(
                     extract_fourier(scale=scale_w, n_filters=512, random_state=random_state),
                     extract_distance(scale=scale_d, n_filters=512, random_state=random_state),
-                    # save_features(f'.cache_features-lag={lag}-scale_w={scale_w}-scale_d={scale_d}')
+                    # save_features(f'.cache_features-dbname={dbname}-lag={lag}-scale_w={scale_w}-scale_d={scale_d}-random_state={random_state}.npz')
                 )(data_bundle)
                 X_dist = data_bundle['X_dist']
                 X_fourier_w = data_bundle['X_fourier_w']
@@ -340,11 +372,13 @@ def get_performances(dbname, dbpath, dim=3, lag=5, scale_w=2e0, scale_d=1e0, use
 if __name__ == '__main__':
     # select_geometric_params()
     # select_model_params()
-    get_performances('MITDB', 'E:/database', 5, 0.25, 2.0, False)
-    get_performances('MITDB', 'E:/database', 5, 1.0, 1.0, 'w')
-    get_performances('NSRDB', 'E:/database', 10, 0.25, 1.0, False)
-    get_performances('NSRDB', 'E:/database', 5, 2.0, 0.5, 'w')
-    get_performances('AFDB', 'E:/database/mit-bih-atrial-fibrillation-database-1.0.0', 5, 0.25, 2.0, False)
-    get_performances('AFDB', 'E:/database/mit-bih-atrial-fibrillation-database-1.0.0', 5, 1.0, 0.5, 'w')
-    get_performances('FANTASIA', 'E:/database', 5, 0.25, 4.0, False)
-    get_performances('FANTASIA', 'E:/database', 5, 1.0, 1.0, 'w')
+    # get_performances('MITDB', 'E:/database', 5, 0.25, 2.0, False)
+    # get_performances('MITDB', 'E:/database', 5, 1.0, 1.0, 'w')
+    # get_performances('NSRDB', 'E:/database', 10, 0.25, 1.0, False)
+    # get_performances('NSRDB', 'E:/database', 3, 5, 2.0, 0.5, 'w')
+    write_log('logistic regression - FANTASIA')
+    # get_performances('FANTASIA', 'E:/database', 3, 5, 0.25, 4.0, False)
+    get_performances('FANTASIA', 'E:/database', 3, 5, 1.0, 1.0, 'w', True)
+    write_log('logistic regression - AFDB')
+    get_performances('AFDB', 'E:/database/mit-bih-atrial-fibrillation-database-1.0.0', 3, 5, 0.25, 2.0, False, False)
+    get_performances('AFDB', 'E:/database/mit-bih-atrial-fibrillation-database-1.0.0', 3, 5, 1.0, 0.5, 'w', True)
