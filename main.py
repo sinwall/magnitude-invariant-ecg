@@ -250,7 +250,10 @@ def select_model_params(dbname, dbpath, dim=3, lag=5, scale_w=2e0, scale_d=1e0, 
 
 
 
-def get_performances(dbname, dbpath, dim=3, lag=5, scale_w=2e0, scale_d=1e0, use_weighting=False, use_cache=False):
+def get_performances(
+        dbname, dbpath, dim=3, lag=5, scale_w=2e0, scale_d=1e0, use_weighting=False, use_cache=False, train_ratio=0.8,
+        compress_size=250, distance_scale=1e0
+        ):
     '''
     Main result of experiment is provided by this function.
     - `dbname`: one of 'FANTASIA' 'NSRDB' 'MITDB' 'AFDB'
@@ -273,12 +276,14 @@ def get_performances(dbname, dbpath, dim=3, lag=5, scale_w=2e0, scale_d=1e0, use
             resample_ecg(fs_after=250),
             divide_segments(seg_dur=2, fs=250, minmax_scale=False),
             make_curves(dim=dim, lag=lag, reduce=0),  # time-delay embedding
-            compress_curves(size=250),  # reduce
+            compress_curves(size=compress_size),  # reduce
             # calculate_weights(scale=1e0),
             # calculate_max_dispers(scale=1e0),
         )(data_bundle)
-        if use_weighting:
-            data_bundle = calculate_weights(scale=1e0)(data_bundle)
+        if use_weighting == 'w':
+            data_bundle = calculate_weights(scale=distance_scale)(data_bundle)
+        elif use_weighting == 'm':
+            data_bundle = calculate_max_dispers(scale=distance_scale)(data_bundle)
 
         # train/test/validation split
         y = data_bundle['seg_ids']
@@ -286,7 +291,7 @@ def get_performances(dbname, dbpath, dim=3, lag=5, scale_w=2e0, scale_d=1e0, use
             (y == s)*np.cumsum((y == s) / np.sum(y == s))
             for s in np.unique(y)
         ], axis=0)
-        mask_train = (idwise_cnt_normalized < 0.8) # & (idwise_cnt_normalized > 0.7)
+        mask_train = (idwise_cnt_normalized < 0.8) & (idwise_cnt_normalized >= (0.8-train_ratio))
         mask_test = idwise_cnt_normalized > 0.8
         # mask_val = (idwise_cnt_normalized < 0.8) & (idwise_cnt_normalized > 0.7)
 
@@ -312,7 +317,7 @@ def get_performances(dbname, dbpath, dim=3, lag=5, scale_w=2e0, scale_d=1e0, use
                     (y == s)*np.cumsum((y == s) / np.sum(y == s))
                     for s in np.unique(y)
                 ], axis=0)
-                mask_train = (idwise_cnt_normalized < 0.8) # & (idwise_cnt_normalized > 0.7)
+                mask_train = (idwise_cnt_normalized < 0.8) & (idwise_cnt_normalized >= (0.8-train_ratio))
                 mask_test = idwise_cnt_normalized > 0.8
                 # mask_val = (idwise_cnt_normalized < 0.8) & (idwise_cnt_normalized > 0.7)
 
@@ -373,12 +378,19 @@ if __name__ == '__main__':
     # select_geometric_params()
     # select_model_params()
     # get_performances('MITDB', 'E:/database', 5, 0.25, 2.0, False)
-    # get_performances('MITDB', 'E:/database', 5, 1.0, 1.0, 'w')
+    # get_performances('MITDB', 'E:/database', 5, 1.0, 1.0, 'w', False)
     # get_performances('NSRDB', 'E:/database', 10, 0.25, 1.0, False)
     # get_performances('NSRDB', 'E:/database', 3, 5, 2.0, 0.5, 'w')
-    write_log('logistic regression - FANTASIA')
+    # write_log('logistic regression - FANTASIA')
     # get_performances('FANTASIA', 'E:/database', 3, 5, 0.25, 4.0, False)
-    get_performances('FANTASIA', 'E:/database', 3, 5, 1.0, 1.0, 'w', True)
-    write_log('logistic regression - AFDB')
-    get_performances('AFDB', 'E:/database/mit-bih-atrial-fibrillation-database-1.0.0', 3, 5, 0.25, 2.0, False, False)
-    get_performances('AFDB', 'E:/database/mit-bih-atrial-fibrillation-database-1.0.0', 3, 5, 1.0, 0.5, 'w', True)
+    # get_performances('FANTASIA', 'E:/database', 3, 5, 1.0, 1.0, 'w', True)
+    # write_log('logistic regression - AFDB')
+    # get_performances('AFDB', 'E:/database/mit-bih-atrial-fibrillation-database-1.0.0', 3, 5, 0.25, 2.0, False, False)
+    # get_performances('AFDB', 'E:/database/mit-bih-atrial-fibrillation-database-1.0.0', 3, 5, 1.0, 0.5, 'w', True)
+
+    write_log('MITDB for cache generation')
+    get_performances('MITDB', 'E:/database', 3, 5, 1.0, 1.0, 'w', False)
+    for train_ratio in [0.6, 0.4, 0.2, 0.7, 0.5, 0.3]:
+        write_log(f'train_ratio={train_ratio}')
+        get_performances('MITDB', 'E:/database', 3, 5, 1.0, 1.0, 'w', True, train_ratio)
+        get_performances('FANTASIA', 'E:/database', 3, 5, 1.0, 1.0, 'w', True, train_ratio)
