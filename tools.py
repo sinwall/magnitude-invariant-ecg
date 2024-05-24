@@ -1,3 +1,4 @@
+from datetime import datetime
 import os
 import wfdb
 import numpy as np
@@ -183,8 +184,8 @@ class FourierFilter():
         self.scale = scale
         self.random_state = random_state
         rng = np.random.default_rng(random_state)
-        n_wave_nums = -(-n_filters // 2)
-        # n_wave_nums = n_filters
+        # n_wave_nums = -(-n_filters // 2)
+        n_wave_nums = n_filters
         # self.wave_numbers = (2*rng.random((n_wave_nums, dim))-1)
         # self.wave_numbers *= rng.random((n_wave_nums, 1)) / np.linalg.norm(self.wave_numbers, axis=1, keepdims=True)
         self.wave_numbers = (2*np.pi/scale)*uniform_sampling_sphere(rng, dim, n_wave_nums)
@@ -214,8 +215,9 @@ def _fourier_filter_apply(pts, weights, n_filters, wave_numbers):
     result = np.empty((pts.shape[0], n_filters))
     for i in prange(result.shape[0]):
         complex_fourier = np.exp(1j*(pts[i] @ wave_numbers.T)).T @ weights[i]
-        result[i, :n_wave_nums] = np.real(complex_fourier)
-        result[i, n_wave_nums:] = np.imag(complex_fourier[:n_filters-n_wave_nums])
+        result[i] = np.abs(complex_fourier)
+        # result[i, :n_wave_nums] = np.real(complex_fourier)
+        # result[i, n_wave_nums:] = np.imag(complex_fourier[:n_filters-n_wave_nums])
     return result
 
 
@@ -463,7 +465,7 @@ def resample_ecg(data_bundle, fs_after=250):
     return data_bundle
 
 @as_partial
-def divide_segments(data_bundle, seg_dur=2, fs=250, ol_rate=0, minmax_scale=False):
+def divide_segments(data_bundle, seg_dur=2, fs=250, ol_rate=0, minmax_scale=False, segs_per_person=1000, random_state=None):
     ecg_signals = data_bundle['ecg_signals']
     ecg_ids = data_bundle['ecg_ids']
     seg_len = int(seg_dur*fs)
@@ -495,6 +497,15 @@ def divide_segments(data_bundle, seg_dur=2, fs=250, ol_rate=0, minmax_scale=Fals
         segs = -1 + 2*(segs - segs_min) / (segs_max - segs_min)
     data_bundle['segs'] = segs
     data_bundle['seg_ids'] = seg_ids
+
+    subindexer = []
+    rng = np.random.default_rng(random_state)
+    for id_ in np.unique(seg_ids):
+        mask = seg_ids == id_
+        subindexer.append(rng.choice(np.where(mask)[0], min(segs_per_person, np.sum(mask)), replace=False))
+    subindexer = np.sort(np.concatenate(subindexer))
+    data_bundle['segs'] = segs[subindexer]
+    data_bundle['seg_ids'] = seg_ids[subindexer]
     return data_bundle
 
 @as_partial
@@ -509,19 +520,16 @@ def make_curves(data_bundle, dim=3, lag=4, reduce=0):
 def compress_curves(data_bundle, size):
     curves = data_bundle['curves']
     data_bundle['curves_uncompressed'] = curves
-    size_r = size
+    size_r = curves.shape[1] - size
     batch_size = 1000000
-    print('Compression countdown started.', end=' ')
     while size_r > 0:
         curves_comp = []
-        print(size_r, end=' ')
         n_remove = size_r // 2 if size_r > 1 else 1
         size_r -= n_remove
         for i in range(0, curves.shape[0], batch_size):
             curves_batch = curves[i:i+batch_size]
             curves_comp.append( _compress_onestep(curves_batch, n_remove) )
         curves = np.concatenate(curves_comp, axis=0)
-    print()
     data_bundle['curves'] = curves
     return data_bundle
 
@@ -559,14 +567,14 @@ def calculate_weights(data_bundle, scale=1.):
     curves = data_bundle['curves']
     weights = np.empty(curves.shape[:-1])
     batch_size = 1000
-    print('Weight calculation started.')
+    print(datetime.now().isoformat(), 'Weight calculation started.')
     for num in range(0, curves.shape[0], batch_size):
-        print(num+batch_size, end=' ')
-        if ((num+batch_size)%10000 == 0):
-            print()
+        # print(num+batch_size, end=' ')
+        # if ((num+batch_size)%10000 == 0):
+        #     print()
         w_part = calculate_weighting_vectors(curves[num:num+batch_size]/scale)
         weights[num:num+batch_size] = w_part
-    print()
+    print(datetime.now().isoformat(), 'Weight calculation ended.')
     data_bundle['weights'] = weights
     return data_bundle
 
@@ -575,14 +583,14 @@ def calculate_max_dispers(data_bundle, scale=1.):
     curves = data_bundle['curves']
     weights = np.empty(curves.shape[:-1])
     batch_size = 1000
-    print('Weight calculation started.')
+    print(datetime.now().isoformat(), 'Diversifier calculation started.')
     for num in range(0, curves.shape[0], batch_size):
-        print(num+batch_size, end=' ')
-        if ((num+batch_size)%10000 == 0):
-            print()
+        # print(num+batch_size, end=' ')
+        # if ((num+batch_size)%10000 == 0):
+        #     print()
         w_part = calculate_maximum_dispersion(curves[num:num+batch_size]/scale)
         weights[num:num+batch_size] = w_part
-    print()
+    print(datetime.now().isoformat(), 'Diversifier calculation ended.')
     data_bundle['max_dispers'] = weights
     return data_bundle
 
