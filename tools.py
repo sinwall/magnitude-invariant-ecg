@@ -139,7 +139,7 @@ def calculate_maximum_dispersion(pts_lst, scale=1.):
             [w@ones_vec == 1, (-w) <= 0]
         )
         prob.solve()
-        result.append(w.value)
+        result.append(np.maximum(w.value, 0) / prob.value)
     if isinstance(pts_lst, np.ndarray):
         result = np.array(result)
     return result
@@ -472,7 +472,7 @@ def divide_segments(data_bundle, seg_dur=2, fs=250, ol_rate=0, minmax_scale=Fals
     segs = []; seg_ids = []
     if isinstance(ecg_signals, np.ndarray):
         raw_len = ecg_signals.shape[1]
-        for i in range(0, raw_len, int((1-ol_rate)*fs)):
+        for i in range(0, raw_len, int(seg_dur*(1-ol_rate)*fs)):
             seg = ecg_signals[:, i:i+seg_len]
             if seg.shape[1] < seg_len: break
             segs.append( seg )
@@ -482,7 +482,7 @@ def divide_segments(data_bundle, seg_dur=2, fs=250, ol_rate=0, minmax_scale=Fals
     else:
         for ecg_signal, ecg_id in zip(ecg_signals, ecg_ids):
             raw_len = ecg_signal.shape[0]
-            for i in range(0, raw_len, int((1-ol_rate)*fs)):
+            for i in range(0, raw_len, int(seg_dur*(1-ol_rate)*fs)):
                 seg = ecg_signal[i:i+seg_len]
                 if seg.shape[0] < seg_len: break
                 segs.append( seg )
