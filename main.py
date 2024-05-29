@@ -6,6 +6,7 @@ import logging
 # import sys
 # sys.path.append(os.path.abspath('../'))
 import numpy as np
+import pandas as pd
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.decomposition import PCA
 from sklearn.pipeline import make_pipeline
@@ -48,6 +49,25 @@ def compose(*args):
             x = fn(x)
         return x
     return _inner
+
+
+def load_validated_params(file_name, dbname, split_no):
+    df = pd.read_csv(file_name, na_values=['-'])
+    df = df[df['dbname'] == dbname]
+    df = df[df['split_no'] == split_no]
+    df = df[df['weight_type'] == 'w']
+    df = df.iloc[0]
+
+    scale_w = df['scale_w']
+    scale_d = df['scale_d']
+    list_of_best_params = {
+        'lr': dict(C=df['LR-C']),
+        'knn': dict(n_neighbors=df['KNN-n_neigh'], weights=df['KNN-weight']),
+        'svm': dict(C=df['SVM-C'], gamma=df['SVM-gamm']),
+        'mlp': dict(hidden_layer_sizes=(df['MLP-hidden'], ))
+    }
+    return scale_w, scale_d, list_of_best_params
+
 
 def get_model(name, random_state=None, **kwargs):
     if name == 'knn':
@@ -398,7 +418,7 @@ def get_performances(
         downsample_size=200, distance_scale=1e0, n_filters=1024, 
         model_names=[], list_of_params=[],
         split_no=42, use_cache=False, use_f_cache=False,
-        train_ratio=0.8, without_dist=False
+        train_ratio=0.8, without_dist=False, cross_examinations=None
     ):
     '''
     Main result of experiment is provided by this function.
@@ -421,7 +441,7 @@ def get_performances(
             load_data(dbname, dbpath),
             remove_baseline(),
             resample_ecg(fs_after=250),
-                divide_segments(seg_dur=2, fs=250, minmax_scale=False, random_state=split_no, segs_per_person=1000),
+            divide_segments(seg_dur=2, fs=250, minmax_scale=False, random_state=split_no, segs_per_person=1000),
         )(data_bundle)
     data_bundle = compose(
         make_curves(dim=dim, lag=lag, reduce=0),  # time-delay embedding
@@ -468,6 +488,7 @@ def get_performances(
     y_train, y_test = y[mask_train], y[mask_test]
     X_train, X_test = X[mask_train], X[mask_test]
 
+    warm_models = []
     for model_name, params in zip(model_names, list_of_params):
         write_log(model_name)
         model = get_model(model_name, random_state=random_state, **params)
@@ -479,11 +500,76 @@ def get_performances(
         score = accuracy_score(y_test, model.predict(X_test))
         stats[f'calc-time-pred-{model_name}'] = (datetime.now() - clock).total_seconds()
         stats[model_name] = score
+        warm_models.append(model)
         write_log(score)
         
     write_log(f'performance: {stats}')
     write_log('')
+    if not cross_examinations:
+        return stats
+    for ce in range(2):
+        data_bundle = dict()
+        if use_cache:
+            data_bundle = load_cached_segments(data_bundle, dbname, split_no)
+        elif not use_cache:
+            data_bundle = compose(
+                load_data(dbname, dbpath),
+                remove_baseline(),
+                resample_ecg(fs_after=250),
+                divide_segments(seg_dur=2, fs=250, minmax_scale=False, random_state=split_no, segs_per_person=1000),
+            )(data_bundle)
+        if ce == 0: # make segment into 1.5s length
+            data_bundle['segs'] = data_bundle['segs'][:, :375]
+            data_bundle = compose(
+                make_curves(dim=dim, lag=lag, reduce=0),  # time-delay embedding
+                compress_curves(size=downsample_size),  # reduce
+            )(data_bundle)
+        elif ce == 1: # modify frequency to 500Hz
+            from scipy.signal import resample
+            data_bundle['segs'] = resample(data_bundle['segs'], 1000, axis=1)
+            data_bundle = compose(
+                make_curves(dim=dim, lag=lag*2, reduce=0),  # time-delay embedding
+                compress_curves(size=downsample_size),  # reduce
+            )(data_bundle)
+        if weight_type == 'w':
+            data_bundle = calculate_weights(scale=distance_scale)(data_bundle)
+        elif weight_type == 'm':
+            data_bundle = calculate_max_dispers(scale=distance_scale)(data_bundle)
+        y = data_bundle['seg_ids']
+        idwise_cnt_normalized = np.sum([
+            (y == s)*np.cumsum((y == s) / np.sum(y == s))
+            for s in np.unique(y)
+        ], axis=0)
+        mask_train = (idwise_cnt_normalized < 0.8) & (idwise_cnt_normalized >= (0.8-train_ratio))
+        # mask_val = (idwise_cnt_normalized < 0.8) & (idwise_cnt_normalized >=0.6)
+        mask_test = (idwise_cnt_normalized >= 0.8)
+
+        random_state = split_no
+        data_bundle = compose(
+            extract_distance(scale=scale_d, n_filters=n_filters, random_state=random_state),
+        )(data_bundle)
+        X_dist = data_bundle['X_dist']
+        if weight_type:
+            if without_dist:
+                data_bundle = extract_fourier(scale=scale_w, n_filters=n_filters, weight_type=weight_type, random_state=random_state)(data_bundle)
+                X_fourier = data_bundle[f'X_fourier_{weight_type}']
+                X = X_fourier
+            else:
+                data_bundle = extract_fourier(scale=scale_w, n_filters=n_filters//2, weight_type=weight_type, random_state=random_state)(data_bundle)
+                X_fourier = data_bundle[f'X_fourier_{weight_type}']
+                X = np.concatenate([X_dist[..., ::2], X_fourier], axis=1)
+        else:
+            X = X_dist
+        y_train, y_test = y[mask_train], y[mask_test]
+        X_train, X_test = X[mask_train], X[mask_test]
+
+        for model_name, model in zip(model_names, warm_models):
+            score = accuracy_score(y_test, model.predict(X_test))
+            stats[f'{model_name}_C.E.{ce}'] = score
+            write_log(f'C.E.{ce} result: {model_name}, score={score}')
     return stats
+
+
 
 
 model_param_grids = {
@@ -514,23 +600,43 @@ if __name__ == '__main__':
     # for dbname, dbpath in zip(dbnames, dbpaths):
     #     cache_segments(dbname, dbpath, range(42, 42+10))
     
-    # param selection
+    # param selection and performance check
+    # for dbname, dbpath in zip(dbnames, dbpaths):
+    #     exp_record = defaultdict(list)
+    #     for split_no in range(42, 42+10):
+    #         write_log(f'{dbname}-{split_no}')
+    #         scale_w, scale_d, list_of_best_params = select_geometric_params(
+    #             dbname=dbname, dbpath=dbpath, 
+    #             dim=3, lag=5, scale_ws=[0.25, 0.5, 1, 2, 4], scale_ds=[0.25, 0.5, 1, 2, 4], weight_type='w',
+    #             downsample_size=100, distance_scale=1.0, n_filters_small=256, n_filters=1024,
+    #             model_names=['lr', 'knn', 'svm', 'mlp'], 
+    #             param_grids=[model_param_grids[key] for key in ['lr', 'knn', 'svm', 'mlp']],
+    #             split_no=split_no, use_cache=True
+    #         )
+    #         stats = get_performances(
+    #             dbname=dbname, dbpath=dbpath, 
+    #             dim=3, lag=5, scale_w=scale_w, scale_d=scale_d, weight_type='w', 
+    #             downsample_size=200, distance_scale=1e0, n_filters=1024, 
+    #             model_names=['lr', 'knn', 'svm', 'mlp'], 
+    #             list_of_params=[list_of_best_params[key] for key in ['lr', 'knn', 'svm', 'mlp']],
+    #             split_no=split_no, use_cache=True, use_f_cache=False,
+    #             train_ratio=0.8
+    #         )
+    #         for key, val in stats.items():
+    #             exp_record[key].append(val)
+    #     for key, val in exp_record.items():
+    #         write_log(f'stats of {key}: mean={np.mean(val)}, std={np.std(val)}, max={np.max(val)}, min={np.min(val)}')
+
+    # experiment with other weight m
+    write_log('Other weights: "m"')
     for dbname, dbpath in zip(dbnames, dbpaths):
-        if dbname == 'FANTASIA': continue
         exp_record = defaultdict(list)
         for split_no in range(42, 42+10):
             write_log(f'{dbname}-{split_no}')
-            scale_w, scale_d, list_of_best_params = select_geometric_params(
-                dbname=dbname, dbpath=dbpath, 
-                dim=3, lag=5, scale_ws=[0.25, 0.5, 1, 2, 4], scale_ds=[0.25, 0.5, 1, 2, 4], weight_type='w',
-                downsample_size=100, distance_scale=1.0, n_filters_small=256, n_filters=1024,
-                model_names=['lr', 'knn', 'svm', 'mlp'], 
-                param_grids=[model_param_grids[key] for key in ['lr', 'knn', 'svm', 'mlp']],
-                split_no=split_no, use_cache=True
-            )
+            scale_w, scale_d, list_of_best_params = load_validated_params('.validated.csv', dbname, split_no)
             stats = get_performances(
                 dbname=dbname, dbpath=dbpath, 
-                dim=3, lag=5, scale_w=scale_w, scale_d=scale_d, weight_type='w', 
+                dim=3, lag=5, scale_w=scale_w, scale_d=scale_d, weight_type='m', 
                 downsample_size=200, distance_scale=1e0, n_filters=1024, 
                 model_names=['lr', 'knn', 'svm', 'mlp'], 
                 list_of_params=[list_of_best_params[key] for key in ['lr', 'knn', 'svm', 'mlp']],
@@ -541,7 +647,29 @@ if __name__ == '__main__':
                 exp_record[key].append(val)
         for key, val in exp_record.items():
             write_log(f'stats of {key}: mean={np.mean(val)}, std={np.std(val)}, max={np.max(val)}, min={np.min(val)}')
+       
+    # experiment with other weight u
+    write_log('Other weights: "u"')
+    for dbname, dbpath in zip(dbnames, dbpaths):
+        exp_record = defaultdict(list)
+        for split_no in range(42, 42+10):
+            write_log(f'{dbname}-{split_no}')
+            scale_w, scale_d, list_of_best_params = load_validated_params('.validated.csv', dbname, split_no)
+            stats = get_performances(
+                dbname=dbname, dbpath=dbpath, 
+                dim=3, lag=5, scale_w=scale_w, scale_d=scale_d, weight_type='u', 
+                downsample_size=200, distance_scale=1e0, n_filters=1024, 
+                model_names=['lr', 'knn', 'svm', 'mlp'], 
+                list_of_params=[list_of_best_params[key] for key in ['lr', 'knn', 'svm', 'mlp']],
+                split_no=split_no, use_cache=True, use_f_cache=False,
+                train_ratio=0.8
+            )
+            for key, val in stats.items():
+                exp_record[key].append(val)
+        for key, val in exp_record.items():
+            write_log(f'stats of {key}: mean={np.mean(val)}, std={np.std(val)}, max={np.max(val)}, min={np.min(val)}')     
 
+    # legacies
     # geometric-params
     # for dbname, dbpath in zip(dbnames, dbpaths):
     #     write_log(f'select_geometric_params {dbname} but without weighting')
