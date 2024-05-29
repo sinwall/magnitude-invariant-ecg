@@ -599,6 +599,8 @@ def extract_fourier(data_bundle, scale=1e0, n_filters=256, weight_type='w', rand
     curves = data_bundle['curves']
     if weight_type == 'm':
         weights = data_bundle['max_dispers']
+    elif weight_type == 'u':
+        weights = np.full(data_bundle['curves'].shape[:-1], 1/data_bundle['curves'].shape[1])
     else:
         weights = data_bundle['weights']
     fourier_filter = FourierFilter(dim=curves.shape[-1], scale=scale, n_filters=n_filters, random_state=random_state)

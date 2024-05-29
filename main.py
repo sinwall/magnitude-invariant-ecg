@@ -361,12 +361,44 @@ def select_geometric_params(
         # downsample_size_small=100, downsample_size=200, distance_scale=1e0, n_filters_small=256, n_filters=1024,
         # model_names=[], param_grids=[],
         # split_no=42, use_cache=False, 
+
+
+# def cache_features(dbname, random_state, dim, lag, compress_size, distance_scale, scale_w, scale_d, weight_type, n_filters):
+#     data_bundle = dict()
+#     data_bundle = load_cached_segments(data_bundle, dbname, random_state)
+#     data_bundle = compose(
+#         make_curves(dim=dim, lag=lag, reduce=0), 
+#         compress_curves(size=compress_size), 
+#         extract_distance(scale=scale_d, n_filters=n_filters, random_state=random_state)
+#     )(data_bundle)
+#     if weight_type == 'w':
+#         data_bundle = compose(
+#             calculate_weights(distance_scale),
+#             extract_fourier(scale=scale_w, n_filters=n_filters//2, weight_type=weight_type, random_state=random_state),
+#         )(data_bundle)
+#     elif weight_type == 'm':
+#         data_bundle = compose(
+#             calculate_max_dispers(distance_scale),
+#             extract_fourier(scale=scale_w, n_filters=n_filters//2, weight_type=weight_type, random_state=random_state),
+#         )(data_bundle)
+#     X = data_bundle['X_dist']
+#     if weight_type:
+#         X = np.concatenate([X[..., ::2], data_bundle[f'X_fourier_{weight_type}']], axis=-1)
+    
+#     file_name = '-'.join([
+#         'seg_features', f'dbname={dbname}', f'random_state={random_state}', f'dim={dim}', f'lag={lag}',
+#         f'compress_size={compress_size}', f'distance_scale={distance_scale}', f'scale_w={scale_w}', f'scale_d={scale_d}',
+#         f'weight_type={weight_type}', f'n_filters={n_filters}'
+#     ])
+#     np.savez(file_name, X=X, y=data_bundle['seg_ids'])
+
+
 def get_performances(
         dbname, dbpath, dim, lag, scale_w, scale_d, weight_type, 
         downsample_size=200, distance_scale=1e0, n_filters=1024, 
         model_names=[], list_of_params=[],
         split_no=42, use_cache=False, use_f_cache=False,
-        train_ratio=0.8
+        train_ratio=0.8, without_dist=False
     ):
     '''
     Main result of experiment is provided by this function.
@@ -421,10 +453,16 @@ def get_performances(
     X_dist = data_bundle['X_dist']
     if weight_type:
         clock = datetime.now()
-        data_bundle = extract_fourier(scale=scale_w, n_filters=n_filters//2, weight_type=weight_type, random_state=random_state)(data_bundle)
-        stats[f'calc-time-fourier-{weight_type}'] = (datetime.now() - clock).total_seconds()
-        X_fourier = data_bundle[f'X_fourier_{weight_type}']
-        X = np.concatenate([X_dist[..., ::2], X_fourier], axis=1)
+        if without_dist:
+            data_bundle = extract_fourier(scale=scale_w, n_filters=n_filters, weight_type=weight_type, random_state=random_state)(data_bundle)
+            stats[f'calc-time-fourier-{weight_type}'] = (datetime.now() - clock).total_seconds()
+            X_fourier = data_bundle[f'X_fourier_{weight_type}']
+            X = X_fourier
+        else:
+            data_bundle = extract_fourier(scale=scale_w, n_filters=n_filters//2, weight_type=weight_type, random_state=random_state)(data_bundle)
+            stats[f'calc-time-fourier-{weight_type}'] = (datetime.now() - clock).total_seconds()
+            X_fourier = data_bundle[f'X_fourier_{weight_type}']
+            X = np.concatenate([X_dist[..., ::2], X_fourier], axis=1)
     else:
         X = X_dist
     y_train, y_test = y[mask_train], y[mask_test]
