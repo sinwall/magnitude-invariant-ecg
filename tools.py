@@ -135,7 +135,7 @@ def calculate_maximum_dispersion(pts_lst, scale=1.):
 
         w = cp.Variable(zeta_mat.shape[0])
         prob = cp.Problem(
-            cp.Minimize(w@zeta_mat@w),
+            cp.Minimize(w@cp.psd_wrap(zeta_mat)@w),
             [w@ones_vec == 1, (-w) <= 0]
         )
         prob.solve()
