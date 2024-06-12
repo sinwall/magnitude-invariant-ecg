@@ -51,11 +51,11 @@ def compose(*args):
     return _inner
 
 
-def load_validated_params(file_name, dbname, split_no):
+def load_validated_params(file_name, dbname, split_no, weight_type='w'):
     df = pd.read_csv(file_name, na_values=['-'])
     df = df[df['dbname'] == dbname]
     df = df[df['split_no'] == split_no]
-    df = df[df['weight_type'] == 'w']
+    df = df[df['weight_type'] == str(weight_type)]
     df = df.iloc[0]
 
     scale_w = df['scale_w']
@@ -595,45 +595,42 @@ model_param_grids = {
 
 if __name__ == '__main__':
     dbnames = ['FANTASIA', 'NSRDB', 'MITDB', 'AFDB']
-    dbpaths = ['E:/database', 'E:/database', 'E:/database', 'E:/database/mit-bih-atrial-fibrillation-database-1.0.0']
-    # # caching
+    dbpaths = ['D:/database', 'D:/database', 'D:/database', 'D:/database/mit-bih-atrial-fibrillation-database-1.0.0']
+
+    # caching
     # for dbname, dbpath in zip(dbnames, dbpaths):
     #     cache_segments(dbname, dbpath, range(42, 42+10))
     
     # param selection and performance check
-    # for dbname, dbpath in zip(dbnames, dbpaths):
-    #     exp_record = defaultdict(list)
-    #     for split_no in range(42, 42+10):
-    #         write_log(f'{dbname}-{split_no}')
-    #         scale_w, scale_d, list_of_best_params = select_geometric_params(
-    #             dbname=dbname, dbpath=dbpath, 
-    #             dim=3, lag=5, scale_ws=[0.25, 0.5, 1, 2, 4], scale_ds=[0.25, 0.5, 1, 2, 4], weight_type='w',
-    #             downsample_size=100, distance_scale=1.0, n_filters_small=256, n_filters=1024,
-    #             model_names=['lr', 'knn', 'svm', 'mlp'], 
-    #             param_grids=[model_param_grids[key] for key in ['lr', 'knn', 'svm', 'mlp']],
-    #             split_no=split_no, use_cache=True
-    #         )
-    #         stats = get_performances(
-    #             dbname=dbname, dbpath=dbpath, 
-    #             dim=3, lag=5, scale_w=scale_w, scale_d=scale_d, weight_type='w', 
-    #             downsample_size=200, distance_scale=1e0, n_filters=1024, 
-    #             model_names=['lr', 'knn', 'svm', 'mlp'], 
-    #             list_of_params=[list_of_best_params[key] for key in ['lr', 'knn', 'svm', 'mlp']],
-    #             split_no=split_no, use_cache=True, use_f_cache=False,
-    #             train_ratio=0.8
-    #         )
-    #         for key, val in stats.items():
-    #             exp_record[key].append(val)
-    #     for key, val in exp_record.items():
-    #         write_log(f'stats of {key}: mean={np.mean(val)}, std={np.std(val)}, max={np.max(val)}, min={np.min(val)}')
-
-    # experiment with other weight m
-    write_log('Other weights: "m"')
     for dbname, dbpath in zip(dbnames, dbpaths):
         exp_record = defaultdict(list)
         for split_no in range(42, 42+10):
             write_log(f'{dbname}-{split_no}')
-            scale_w, scale_d, list_of_best_params = load_validated_params('.validated.csv', dbname, split_no)
+            # parameter selection cross validation
+            # scale_w, scale_d, list_of_best_params = select_geometric_params(
+            #     dbname=dbname, dbpath=dbpath, 
+            #     dim=3, lag=5, scale_ws=[0.25, 0.5, 1, 2, 4], scale_ds=[0.25, 0.5, 1, 2, 4], weight_type='w',
+            #     downsample_size=100, distance_scale=1.0, n_filters_small=256, n_filters=1024,
+            #     model_names=['lr', 'knn', 'svm', 'mlp'], 
+            #     param_grids=[model_param_grids[key] for key in ['lr', 'knn', 'svm', 'mlp']],
+            #     split_no=split_no, use_cache=True
+            # )
+            # used saved CV result
+            scale_w, scale_d, list_of_best_params = load_validated_params('.validated.csv', dbname, split_no, 'w')
+            # performance check: weighting case
+            stats = get_performances(
+                dbname=dbname, dbpath=dbpath, 
+                dim=3, lag=5, scale_w=scale_w, scale_d=scale_d, weight_type='w', 
+                downsample_size=200, distance_scale=1e0, n_filters=1024, 
+                model_names=['lr', 'knn', 'svm', 'mlp'], 
+                list_of_params=[list_of_best_params[key] for key in ['lr', 'knn', 'svm', 'mlp']],
+                split_no=split_no, use_cache=True, use_f_cache=False,
+                train_ratio=0.8
+            )
+            for key, val in stats.items():
+                exp_record[f'score-{key}-weighting'].append(val)
+                
+            # performance check: diversifier case
             stats = get_performances(
                 dbname=dbname, dbpath=dbpath, 
                 dim=3, lag=5, scale_w=scale_w, scale_d=scale_d, weight_type='m', 
@@ -644,17 +641,9 @@ if __name__ == '__main__':
                 train_ratio=0.8
             )
             for key, val in stats.items():
-                exp_record[key].append(val)
-        for key, val in exp_record.items():
-            write_log(f'stats of {key}: mean={np.mean(val)}, std={np.std(val)}, max={np.max(val)}, min={np.min(val)}')
-       
-    # experiment with other weight u
-    write_log('Other weights: "u"')
-    for dbname, dbpath in zip(dbnames, dbpaths):
-        exp_record = defaultdict(list)
-        for split_no in range(42, 42+10):
-            write_log(f'{dbname}-{split_no}')
-            scale_w, scale_d, list_of_best_params = load_validated_params('.validated.csv', dbname, split_no)
+                exp_record[f'score-{key}-diversifier'].append(val)
+
+            # performance check: uniform measure case
             stats = get_performances(
                 dbname=dbname, dbpath=dbpath, 
                 dim=3, lag=5, scale_w=scale_w, scale_d=scale_d, weight_type='u', 
@@ -665,43 +654,32 @@ if __name__ == '__main__':
                 train_ratio=0.8
             )
             for key, val in stats.items():
-                exp_record[key].append(val)
+                exp_record[f'score-{key}-uniform'].append(val)
+                
+            # parameter selection cross validation
+            # scale_w, scale_d, list_of_best_params = select_geometric_params(
+            #     dbname=dbname, dbpath=dbpath, 
+            #     dim=3, lag=5, scale_ws=[0.1], scale_ds=[0.25, 0.5, 1, 2, 4], weight_type=None,
+            #     downsample_size=100, distance_scale=1.0, n_filters_small=256, n_filters=1024,
+            #     model_names=['lr', 'knn', 'svm', 'mlp'], 
+            #     param_grids=[model_param_grids[key] for key in ['lr', 'knn', 'svm', 'mlp']],
+            #     split_no=split_no, use_cache=True
+            # )
+            # used saved CV result
+            scale_w, scale_d, list_of_best_params = load_validated_params('.validated.csv', dbname, split_no, None)
+            # performance check: weighting case
+            stats = get_performances(
+                dbname=dbname, dbpath=dbpath, 
+                dim=3, lag=5, scale_w=scale_w, scale_d=scale_d, weight_type=None, 
+                downsample_size=200, distance_scale=1e0, n_filters=1024, 
+                model_names=['lr', 'knn', 'svm', 'mlp'], 
+                list_of_params=[list_of_best_params[key] for key in ['lr', 'knn', 'svm', 'mlp']],
+                split_no=split_no, use_cache=True, use_f_cache=False,
+                train_ratio=0.8
+            )
+            for key, val in stats.items():
+                exp_record[f'score-{key}-default'].append(val)
+
+
         for key, val in exp_record.items():
-            write_log(f'stats of {key}: mean={np.mean(val)}, std={np.std(val)}, max={np.max(val)}, min={np.min(val)}')     
-
-    # legacies
-    # geometric-params
-    # for dbname, dbpath in zip(dbnames, dbpaths):
-    #     write_log(f'select_geometric_params {dbname} but without weighting')
-    #     select_geometric_params(
-    #         dbname, dbpath,
-    #         3, 5, (0.25, ), (0.25, 0.5, 1, 2, 4), False,
-    #         use_cache=False, compress_size=100, distance_scale=1, n_filters=256, model_name='knn'
-    #     )
-
-    # model-params
-    # write_log('select model params')
-    # for dbname, dbpath, scale_w, scale_d in zip(
-    #     dbnames, dbpaths,
-    #     [1., 2., 1., 2.],
-    #     # [1., .5, 1., .5],
-    #     [2., 0.5, 2., 1.]
-    # ):
-    #     write_log(f'model_params {dbname} but without weighting')
-    #     select_model_params(
-    #         dbname, dbpath, 3, 5, scale_w, scale_d, False, use_cache=False,
-    #         compress_size=100, distance_scale=1, n_filters=1024, 
-    #         model_names=['mlp', 'lr', 'knn', 'svm'],
-    #         list_of_param_grids=[model_param_grids[key] for key in ['mlp', 'lr', 'knn', 'svm',]]
-    #     )
-
-    # performance
-    # for dbname, dbpath, scale_w, scale_d in zip(
-    #     ['MITDB', 'NSRDB', 'AFDB', 'FANTASIA'],
-    #     ['E:/database', 'E:/database', 'E:/database/mit-bih-atrial-fibrillation-database-1.0.0', 'E:/database'],
-    #     [1., 2., 1., 1.,],
-    #     [1., .5, .5, 1.]
-    # ):
-    #     write_log(f'experiment with {dbname}, no weighting,, now with comp=250, hgbt&lr')
-    #     select_geometric_params(dbname, dbpath, 3, 5, 1, 1, False, False, 250, model_name='hgbt')
-    #     select_geometric_params(dbname, dbpath, 3, 5, 1, 1, False, False, 250, model_name='lr')
+            write_log(f'stats of {key}: mean={np.mean(val)}, std={np.std(val)}, max={np.max(val)}, min={np.min(val)}')
