@@ -595,11 +595,10 @@ model_param_grids = {
 
 if __name__ == '__main__':
     dbnames = ['FANTASIA', 'NSRDB', 'MITDB', 'AFDB']
-    dbpaths = ['D:/database', 'D:/database', 'D:/database', 'D:/database/mit-bih-atrial-fibrillation-database-1.0.0']
-
+    dbpaths = ['../data', '../data', '../data', '../data']
     # caching
-    # for dbname, dbpath in zip(dbnames, dbpaths):
-    #     cache_segments(dbname, dbpath, range(42, 42+10))
+    for dbname, dbpath in zip(dbnames, dbpaths):
+        cache_segments(dbname, dbpath, range(42, 42+10))
     
     # param selection and performance check
     for dbname, dbpath in zip(dbnames, dbpaths):
@@ -628,7 +627,7 @@ if __name__ == '__main__':
                 train_ratio=0.8
             )
             for key, val in stats.items():
-                exp_record[f'score-{key}-weighting'].append(val)
+                exp_record[f'{key}-weighting'].append(val)
                 
             # performance check: diversifier case
             stats = get_performances(
@@ -641,7 +640,7 @@ if __name__ == '__main__':
                 train_ratio=0.8
             )
             for key, val in stats.items():
-                exp_record[f'score-{key}-diversifier'].append(val)
+                exp_record[f'{key}-diversifier'].append(val)
 
             # performance check: uniform measure case
             stats = get_performances(
@@ -654,7 +653,7 @@ if __name__ == '__main__':
                 train_ratio=0.8
             )
             for key, val in stats.items():
-                exp_record[f'score-{key}-uniform'].append(val)
+                exp_record[f'{key}-uniform'].append(val)
                 
             # parameter selection cross validation
             # scale_w, scale_d, list_of_best_params = select_geometric_params(
@@ -678,8 +677,15 @@ if __name__ == '__main__':
                 train_ratio=0.8
             )
             for key, val in stats.items():
-                exp_record[f'score-{key}-default'].append(val)
+                exp_record[f'{key}-default'].append(val)
 
 
         for key, val in exp_record.items():
-            write_log(f'stats of {key}: mean={np.mean(val)}, std={np.std(val)}, max={np.max(val)}, min={np.min(val)}')
+            write_log(f'{dbname}-summary')
+            write_log(f'statistics of {key}: mean={np.mean(val)}, std={np.std(val)}, max={np.max(val)}, min={np.min(val)}')
+            # summaries are saved in separate file also
+        with open(f'.summary-{dbname}.txt', 'w') as file_w:
+            file_w.writelines([
+                f'statistics of {key}: mean={np.mean(val)}, std={np.std(val)}, max={np.max(val)}, min={np.min(val)}\n'
+                for key, val in exp_record.items()
+                ])
