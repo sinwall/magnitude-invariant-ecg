@@ -2,7 +2,8 @@ import itertools
 from collections import defaultdict
 from datetime import datetime
 import logging
-# import os
+import os
+import csv
 # import sys
 # sys.path.append(os.path.abspath('../'))
 import numpy as np
@@ -132,6 +133,8 @@ def get_model(name, random_state=None, **kwargs):
 
 
 def cache_segments(dbname, dbpath, random_states=(42, )):
+    if not os.path.isdir('.cache'):
+        os.mkdir('.cache')
     data_bundle = dict()
     data_bundle = compose(
         load_data(dbname, dbpath),
@@ -571,6 +574,15 @@ def get_performances(
 
 
 
+def trans_dictform(dbname, split_no, weight_type, scale_w, scale_d, list_of_best_params):
+    result = dict(dbname=dbname, split_no=split_no, weight_type=str(weight_type), scale_w=scale_w, scale_d=scale_d)
+    result['LR-C'] = list_of_best_params['lr']['C']
+    result['KNN-n_neigh'] = list_of_best_params['knn']['n_neighbors']
+    result['KNN-weight'] = list_of_best_params['knn']['weights']
+    result['SVM-C'] = list_of_best_params['svm']['C']
+    result['SVM-gamm'] = list_of_best_params['svm']['gamma']
+    result['MLP-hidden'] = list_of_best_params['mlp']['hidden_layer_sizes'][0]
+    return result
 
 model_param_grids = {
     'knn': dict(
@@ -597,23 +609,34 @@ if __name__ == '__main__':
     dbnames = ['FANTASIA', 'NSRDB', 'MITDB', 'AFDB']
     dbpaths = ['../data', '../data', '../data', '../data']
     # caching
-    for dbname, dbpath in zip(dbnames, dbpaths):
-        cache_segments(dbname, dbpath, range(42, 42+10))
+    # for dbname, dbpath in zip(dbnames, dbpaths):
+    #     cache_segments(dbname, dbpath, range(42, 42+10))
     
     # param selection and performance check
+    file_csv = open('.validated.csv', 'w', newline='', encoding='utf-8')
+    csv_writer = csv.DictWriter(
+        file_csv,
+        ['dbname', 'split_no', 'weight_type', 'scale_w', 'scale_d', 
+         'LR-C', 'KNN-n_neigh', 'KNN-weight', 'SVM-C', 'SVM-gamm', 'MLP-hidden']
+    )
+    csv_writer.writeheader()
+    
     for dbname, dbpath in zip(dbnames, dbpaths):
         exp_record = defaultdict(list)
         for split_no in range(42, 42+10):
             write_log(f'{dbname}-{split_no}')
             # parameter selection cross validation
-            # scale_w, scale_d, list_of_best_params = select_geometric_params(
-            #     dbname=dbname, dbpath=dbpath, 
-            #     dim=3, lag=5, scale_ws=[0.25, 0.5, 1, 2, 4], scale_ds=[0.25, 0.5, 1, 2, 4], weight_type='w',
-            #     downsample_size=100, distance_scale=1.0, n_filters_small=256, n_filters=1024,
-            #     model_names=['lr', 'knn', 'svm', 'mlp'], 
-            #     param_grids=[model_param_grids[key] for key in ['lr', 'knn', 'svm', 'mlp']],
-            #     split_no=split_no, use_cache=True
-            # )
+            scale_w, scale_d, list_of_best_params = select_geometric_params(
+                dbname=dbname, dbpath=dbpath, 
+                dim=3, lag=5, scale_ws=[0.25, 0.5, 1, 2, 4], scale_ds=[0.25, 0.5, 1, 2, 4], weight_type='w',
+                downsample_size=100, distance_scale=1.0, n_filters_small=256, n_filters=1024,
+                model_names=['lr', 'knn', 'svm', 'mlp'], 
+                param_grids=[model_param_grids[key] for key in ['lr', 'knn', 'svm', 'mlp']],
+                split_no=split_no, use_cache=True
+            )
+            csv_writer.writerow(trans_dictform(dbname, split_no, 'w', scale_w, scale_d, list_of_best_params))
+            file_csv.flush()
+
             # used saved CV result
             scale_w, scale_d, list_of_best_params = load_validated_params('.validated.csv', dbname, split_no, 'w')
             # performance check: weighting case
@@ -656,14 +679,16 @@ if __name__ == '__main__':
                 exp_record[f'{key}-uniform'].append(val)
                 
             # parameter selection cross validation
-            # scale_w, scale_d, list_of_best_params = select_geometric_params(
-            #     dbname=dbname, dbpath=dbpath, 
-            #     dim=3, lag=5, scale_ws=[0.1], scale_ds=[0.25, 0.5, 1, 2, 4], weight_type=None,
-            #     downsample_size=100, distance_scale=1.0, n_filters_small=256, n_filters=1024,
-            #     model_names=['lr', 'knn', 'svm', 'mlp'], 
-            #     param_grids=[model_param_grids[key] for key in ['lr', 'knn', 'svm', 'mlp']],
-            #     split_no=split_no, use_cache=True
-            # )
+            scale_w, scale_d, list_of_best_params = select_geometric_params(
+                dbname=dbname, dbpath=dbpath, 
+                dim=3, lag=5, scale_ws=[0.1], scale_ds=[0.25, 0.5, 1, 2, 4], weight_type=None,
+                downsample_size=100, distance_scale=1.0, n_filters_small=256, n_filters=1024,
+                model_names=['lr', 'knn', 'svm', 'mlp'], 
+                param_grids=[model_param_grids[key] for key in ['lr', 'knn', 'svm', 'mlp']],
+                split_no=split_no, use_cache=True
+            )
+            csv_writer.writerow(trans_dictform(dbname, split_no, None, scale_w, scale_d, list_of_best_params))
+            file_csv.flush()
             # used saved CV result
             scale_w, scale_d, list_of_best_params = load_validated_params('.validated.csv', dbname, split_no, None)
             # performance check: weighting case
