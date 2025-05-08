@@ -609,8 +609,8 @@ if __name__ == '__main__':
     dbnames = ['FANTASIA', 'NSRDB', 'MITDB', 'AFDB']
     dbpaths = ['../data', '../data', '../data', '../data']
     # caching
-    # for dbname, dbpath in zip(dbnames, dbpaths):
-    #     cache_segments(dbname, dbpath, range(42, 42+10))
+    for dbname, dbpath in zip(dbnames, dbpaths):
+        cache_segments(dbname, dbpath, range(42, 42+10))
     
     # param selection and performance check
     file_csv = open('.validated.csv', 'w', newline='', encoding='utf-8')
@@ -620,6 +620,14 @@ if __name__ == '__main__':
          'LR-C', 'KNN-n_neigh', 'KNN-weight', 'SVM-C', 'SVM-gamm', 'MLP-hidden']
     )
     csv_writer.writeheader()
+    file_pf = open(f'.performed.csv', 'w', newline='', encoding='utf-8')
+    pf_writer = csv.DictWriter(
+        file_pf,
+        ['dbname', 'weight_type', 'model_name', 'acc_mean', 'acc_std', 'calc_time_fit', 'calc_time_pred', 
+         'calc_time_coef', 'calc_time_dist', 'calc_time_fourier'
+         ]
+    )
+    pf_writer.writeheader()
     
     for dbname, dbpath in zip(dbnames, dbpaths):
         exp_record = defaultdict(list)
@@ -709,8 +717,28 @@ if __name__ == '__main__':
             write_log(f'{dbname}-summary')
             write_log(f'statistics of {key}: mean={np.mean(val)}, std={np.std(val)}, max={np.max(val)}, min={np.min(val)}')
             # summaries are saved in separate file also
-        with open(f'.summary-{dbname}.txt', 'w') as file_w:
-            file_w.writelines([
-                f'statistics of {key}: mean={np.mean(val)}, std={np.std(val)}, max={np.max(val)}, min={np.min(val)}\n'
-                for key, val in exp_record.items()
-                ])
+        # with open(f'.summary-{dbname}.txt', 'w') as file_w:
+        #     file_w.writelines([
+        #         f'statistics of {key}: mean={np.mean(val)}, std={np.std(val)}, max={np.max(val)}, min={np.min(val)}\n'
+        #         for key, val in exp_record.items()
+        #         ])
+        for weight_type in ['weighting', 'diversifier', 'uniform', 'default']:
+            short_name = {'weighting': 'w', 'diversifier': 'm', 'uniform': 'u', 'default': 'd'}[weight_type]
+            for model_name in ['lr', 'knn', 'svm', 'mlp']:
+                row_content = {
+                    'dbname': dbname, 'weight_type': weight_type, 'model_name': model_name, 
+                    'acc_mean': np.mean(exp_record[f'{model_name}-{weight_type}']), 
+                    'acc_std': np.std(exp_record[f'{model_name}-{weight_type}']),
+                    'calc_time_fit': np.mean(exp_record[f'calc-time-fit-{model_name}-{weight_type}']), 
+                    'calc_time_pred': np.mean(exp_record[f'calc-time-pred-{model_name}-{weight_type}']),
+                    'calc_time_dist': np.mean(exp_record[f'calc-time-dist-{weight_type}']), 
+                }
+                if short_name != 'd':
+                    if short_name != 'u':
+                        row_content.update({
+                            'calc_time_coef': np.mean(exp_record[f'calc-time-{short_name}-{weight_type}'])
+                        })
+                    row_content.update({
+                        'calc_time_fourier': np.mean(exp_record[f'calc-time-fourier-{short_name}-{weight_type}'])
+                    })
+                pf_writer.writerow(row_content)

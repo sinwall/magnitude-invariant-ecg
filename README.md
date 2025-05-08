@@ -22,7 +22,14 @@ By default, the file will be used rather than do cross validation again, to save
 
 <h1>Output format</h1>
 
-After run, .txt files with names `.summary-{dbname}.txt` are generated. 
-Each file contains statistics of scores, calculation time, etc. The line starts with
-`statistics of {model_name}-{experiment_type}` records mean, std, max, min of accuracy scores. 
-Here, `model_name` is one of `lr`, `knn`, `svm`, `mlp`. `experiment_type` is one of `weighting`, `diversifier`, `uniform`, `default`.
+After run, .csv file `.performed.csv` is generated. 
+Each field refers to:
+
+- `dbname`: name of the dataset
+- `weight_type`: weighting, diversifier, uniform or default(fourier transform not used)
+- `model_name`: lr(logistic regression), knn(K-nearest neighbors), svm(support vector machine), mlp(multi-layer perceptron)
+- `acc_{mean,std}`: mean accuracy or standard deviation
+- `calc_time_{fit,pred}`: calculation time for fitting(training) and predicting
+- `calc_time_coef`: calculation time for weighting or diversifier
+- `calc_time_dist`: calculation time for distant feature
+- `calc_time_fourier`: calculation time for fourier transform
