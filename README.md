@@ -1,5 +1,7 @@
 # Magnitude theory and Electrocardiogram
 
+This repository is about the experiment part of the manuscript https://arxiv.org/abs/2509.11146.
+
 <h1>Preparation</h1>
 
 - Python == 3.8.6
